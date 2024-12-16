@@ -25,10 +25,10 @@
   Enhanced:  Dimitrios P. Bouras  14 Jun 2006 dbouras@ieee.org
 */
 
-#include "fft.h"
-
 #define N_WAVE      1024    /* full length of Sinewave[] */
 #define LOG2_N_WAVE 10      /* log2(N_WAVE) */
+
+#include <stdint.h>
 
 /*
   Henceforth "short" implies 16-bit word. If this is not
@@ -40,7 +40,7 @@
   Since we only use 3/4 of N_WAVE, we define only
   this many samples, in order to conserve data space.
 */
-short Sinewave[N_WAVE-N_WAVE/4] = {
+int16_t Sinewave[N_WAVE-N_WAVE/4] = {
       0,    201,    402,    603,    804,   1005,   1206,   1406,
    1607,   1808,   2009,   2209,   2410,   2610,   2811,   3011,
    3211,   3411,   3611,   3811,   4011,   4210,   4409,   4608,
@@ -292,12 +292,4 @@ int fix_fftr(int16_t f[], int m, int inverse)
 	if (! inverse)
 		scale = fix_fft(fi, fr, m-1, inverse);
 	return scale;
-}
-
-void adc12_to_int16(uint16_t inbuf[], int16_t outbuf[], int length)
-{
-    int i;
-    for(i = 0; i < length; i++){
-        outbuf[i] = ((int16_t)inbuf[i] - 2048)*16;
-    }
 }

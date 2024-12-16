@@ -9,13 +9,11 @@
 #include "fft.h"
 
 // SPI Defines
-// We are going to use SPI 0, and allocate it to the following GPIO pins
-// Pins can be changed, see the GPIO function select table in the datasheet for information on GPIO assignments
-#define SPI_PORT spi0
-#define PIN_MISO 16
-#define PIN_CS   17
-#define PIN_SCK  18
-#define PIN_MOSI 19
+#define SPI_PORT spi1
+#define PIN_MISO 12
+#define PIN_CS   13
+#define PIN_SCK  10
+#define PIN_MOSI 11
 
 #define ADC_INPUT 0
 #define PIN_ADC 26
@@ -26,13 +24,12 @@
 #define LOG2_SAMPLE_DEPTH_DS
 #define SAMPLE_DEPTH SAMPLE_DEPTH_DS*OSR
 
-const float ADC_SAMPLING_FREQ = 10000.0*OSR;
-
-// uint8_t out_buf[BUF_LEN], in_buf[BUF_LEN];
+const float ADC_SAMPLING_FREQ = 5000.0*OSR; // 1024/5000 = 0.2 s, or 5 Hz resolution
 
 uint16_t    adc_buffer[SAMPLE_DEPTH];
 int16_t     adc_buffer_ds[SAMPLE_DEPTH_DS];
-int16_t     fft_buffer[SAMPLE_DEPTH_DS];
+int16_t     fft_real[SAMPLE_DEPTH_DS];
+int16_t     fft_imag[SAMPLE_DEPTH_DS];
 
 int64_t alarm_callback(alarm_id_t id, void *user_data) {
     // Put your timeout handler code in here
@@ -42,7 +39,6 @@ int64_t alarm_callback(alarm_id_t id, void *user_data) {
 int main()
 {
     stdio_init_all();
-    printf("Boot\n");
 
     // Initialise the Wi-Fi chip
     if (cyw43_arch_init()) {
@@ -52,15 +48,14 @@ int main()
 
     // SPI initialisation. This example will use SPI at 1MHz.
     spi_init(SPI_PORT, 1000*1000);
+    spi_set_format(SPI_PORT, 16, SPI_CPHA_0, SPI_CPOL_0, SPI_MSB_FIRST);
     gpio_set_function(PIN_MISO, GPIO_FUNC_SPI);
     gpio_set_function(PIN_CS,   GPIO_FUNC_SIO);
     gpio_set_function(PIN_SCK,  GPIO_FUNC_SPI);
     gpio_set_function(PIN_MOSI, GPIO_FUNC_SPI);
     
-    // Chip select is active-low, so we'll initialise it to a driven-high state
     gpio_set_dir(PIN_CS, GPIO_OUT);
     gpio_put(PIN_CS, 1);
-    // For more examples of SPI use see https://github.com/raspberrypi/pico-examples/tree/master/spi
 
     // Initialize ADC
     adc_init();
@@ -70,7 +65,7 @@ int main()
         true,    // Enable DMA data request (DREQ)
         1,       // DREQ (and IRQ) asserted when at least 1 sample present
         false,   // We won't see the ERR bit because of 8 bit reads; disable.
-        false     // NOT Shift each sample to 8 bits when pushing to FIFO
+        false    // NOT Shift each sample to 8 bits when pushing to FIFO
     );
 
     adc_gpio_init(PIN_ADC);
@@ -91,11 +86,8 @@ int main()
         true            // start immediately
     );
 
-    // Timer example code - This example fires off the callback after 2000ms
-    add_alarm_in_ms(2000, alarm_callback, NULL, false);
-    // For more examples of timer use see https://github.com/raspberrypi/pico-examples/tree/master/timer
+    // add_alarm_in_ms(2000, alarm_callback, NULL, false);
 
-    // Example to turn on the Pico W LED
     cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
 
     adc_run(true);
@@ -108,27 +100,37 @@ int main()
         if(!dma_channel_is_busy(dma_chan)){
             adc_run(false);
             adc_fifo_drain();
-            printf("\nADC capture done\n");
+            // printf("\nADC capture done\n");
 
             for(int i = 0; i < SAMPLE_DEPTH_DS; i++){
                 int16_t acc = 0;
                 for(int j = 0; j < OSR; j++){
                     acc += ((int16_t)adc_buffer[i*OSR + j] - 2048);
                 }
-                adc_buffer_ds[i] = acc;
-                fft_buffer[i] = acc;
+                // adc_buffer_ds[i] = acc;
+                fft_real[i] = acc;
+                fft_imag[i] = 0;
             }
-
-            // adc12_to_int16(adc_buffer_ds, fft_buffer, SAMPLE_DEPTH_DS);
-            fix_fftr(fft_buffer, 10, 0);
-
-            for(int i = 0; i < SAMPLE_DEPTH_DS; i++){
-                printf("%d;%d\n", fft_buffer[i], adc_buffer_ds[i]);
-            }
-            sleep_ms(5000);
-            printf("Starting next ADC capture\n");
+            // printf("Starting next ADC capture\n");
             dma_channel_set_write_addr (dma_chan, adc_buffer, true);
             adc_run(true);
+
+            fix_fft(fft_real, fft_imag, 10, 0);
+
+            int32_t max = 0;
+            int imax = -1;
+            for(int i = 0; i < SAMPLE_DEPTH_DS/2; i++){
+                int32_t abs2 = ((int32_t)fft_real[i]*fft_real[i]) + ((int32_t)fft_imag[i]*fft_imag[i]);
+                if(abs2 > max){
+                    max = abs2;
+                    imax = i;
+                }
+            }
+
+            if(max/(32768.0*32768.0) >= 0.001){
+                printf("detection\n");
+                printf("max %f\tfreq %f\n", max/(32768.0*32768.0), imax*5000.0/1024.0);
+            }
         }
     }
 }

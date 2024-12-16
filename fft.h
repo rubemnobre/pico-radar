@@ -3,8 +3,6 @@
 
 #include <stdint.h>
 
-int fix_fftr(int16_t f[], int m, int inverse);
-
-void adc12_to_int16(uint16_t inbuf[], int16_t outbuf[], int length);
+int fix_fft(int16_t fr[], int16_t fi[], int16_t m, int16_t inverse);
 
 #endif
