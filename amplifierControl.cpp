@@ -22,7 +22,7 @@ void SPIAmplifier::set_gain(uint8_t gain) {
     uint8_t spiBits[2];
     spiBits[0] = 0b01000000;       // Habilita escrita no registrador
     switch(gain){
-        case 0: 
+        case 1: 
             spiBits[1] = 0;
             break;
         case 2:
@@ -61,6 +61,68 @@ void SPIAmplifier::set_gain(uint8_t gain) {
 
 uint8_t SPIAmplifier::get_gain() const {
     return current_gain;
+}
+
+void SPIAmplifier::set_next_gain() {
+    switch(current_gain){
+        case 1: 
+            set_gain(2);
+            break;
+        case 2:
+            set_gain(4);
+            break;
+        case 4:
+            set_gain(5);
+            break;
+        case 5: 
+            set_gain(8);
+            break;
+        case 8: 
+            set_gain(10);
+            break;
+        case 10:
+            set_gain(16);
+            break;
+        case 16:
+            set_gain(32);
+            break;
+        case 32:
+            set_gain(32);
+            break;
+        default:
+            set_gain(1);
+    }
+}
+
+void SPIAmplifier::set_previous_gain() {
+    switch(current_gain){
+        case 1: 
+            set_gain(1);
+            break;
+        case 2:
+            set_gain(1);
+            break;
+        case 4:
+            set_gain(2);
+            break;
+        case 5: 
+            set_gain(4);
+            break;
+        case 8: 
+            set_gain(5);
+            break;
+        case 10:
+            set_gain(8);
+            break;
+        case 16:
+            set_gain(10);
+            break;
+        case 32:
+            set_gain(16);
+            break;
+        default:
+            set_gain(1);
+    }
 }
 
 void SPIAmplifier::spi_write16(uint16_t data) {

@@ -16,6 +16,9 @@ public:
     // Retorna o ganho atual configurado
     uint8_t get_gain() const;
 
+    void set_previous_gain();
+    void set_next_gain();
+
 private:
     spi_inst_t* spi_port; // Instância do SPI
     uint cs_pin;          // Pino de Chip Select (CS)

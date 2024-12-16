@@ -12,12 +12,22 @@
 #include "amplifierControl.h"
 #include <cstdio>
 
-// SPI Defines
+// Definições de SPI
 #define SPI_PORT spi1
 #define PIN_CS   13
 #define PIN_SCK  10
 #define PIN_MOSI 11
+SPIAmplifier amplifier(SPI_PORT, PIN_CS, PIN_SCK, PIN_MOSI);
 
+// Definição do servo
+#define SERVO_PIN 3
+Servo servo(SERVO_PIN);
+uint8_t current_angle = 0;
+bool increasing = true;
+const uint8_t step = 1;          // Incremento do ângulo
+const uint32_t interval_ms = 5; // Intervalo entre os passos
+
+// Variáveis para execução da FFT
 #define ADC_INPUT 0
 #define PIN_ADC 26
 
@@ -27,8 +37,6 @@
 #define LOG2_SAMPLE_DEPTH_DS
 #define SAMPLE_DEPTH SAMPLE_DEPTH_DS*OSR
 
-#define SERVO_PIN 3
-
 const float ADC_SAMPLING_FREQ = 5000.0*OSR; // 1024/5000 = 0.2 s, or 5 Hz resolution
 
 uint16_t    adc_buffer[SAMPLE_DEPTH];
@@ -36,22 +44,66 @@ int16_t     adc_buffer_ds[SAMPLE_DEPTH_DS];
 int16_t     fft_real[SAMPLE_DEPTH_DS];
 int16_t     fft_imag[SAMPLE_DEPTH_DS];
 
-int64_t alarm_callback(alarm_id_t id, void *user_data) {
-    // Put your timeout handler code in here
-    return 0;
+// Fim das variáveis globais
+
+bool swing_callback(repeating_timer_t *rt) {
+    // Atualiza o ângulo
+    if (increasing) {
+        current_angle += step;
+        if (current_angle >= 180) {
+            current_angle = 180;
+            increasing = false;
+        }
+    } else {
+        current_angle -= step;
+        if (current_angle <= 0) {
+            current_angle = 0;
+            increasing = true;
+        }
+    }
+
+    // Ajusta o ângulo do servo
+    servo.set_angle(current_angle);
+
+    return true; // Continua o alarme
+}
+
+void adjust_gain(uint16_t *samples, int sample_count) {
+    bool saturation_detected = false;
+    bool gain_increment_needed = true;
+
+    // Verifica se há saturação
+    for (int i = 0; i < sample_count; i++) {
+        if(samples[i] >= 3000) {
+            gain_increment_needed = false;
+            if (samples[i] >= 4095) {
+                saturation_detected = true;
+                break;
+            }
+        }
+    }
+
+    // Ajusta o ganho com base na saturação
+    if (saturation_detected) {
+        amplifier.set_previous_gain();
+    } else if (gain_increment_needed) {
+        amplifier.set_next_gain();
+    }
 }
 
 int main()
 {
     stdio_init_all();
-    Servo servo(SERVO_PIN);
-    SPIAmplifier amplifier(SPI_PORT, PIN_CS, PIN_SCK, PIN_MOSI);
 
     // Initialise the Wi-Fi chip
     if (cyw43_arch_init()) {
         printf("Wi-Fi init failed\n");
         return -1;
     }
+
+    // Configura um repeating timer para realizacao do swing do servo
+    repeating_timer_t servoTimer;
+    add_repeating_timer_ms(-interval_ms, swing_callback, NULL, &servoTimer);
 
     // Initialize ADC
     adc_init();
@@ -82,8 +134,6 @@ int main()
         true            // start immediately
     );
 
-    // add_alarm_in_ms(2000, alarm_callback, NULL, false);
-
     cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
 
     adc_run(true);
@@ -107,6 +157,10 @@ int main()
                 fft_real[i] = acc;
                 fft_imag[i] = 0;
             }
+
+            // Ajusta o ganho se necessário
+            adjust_gain(adc_buffer, SAMPLE_DEPTH_DS);
+
             // printf("Starting next ADC capture\n");
             dma_channel_set_write_addr (dma_chan, adc_buffer, true);
             adc_run(true);
