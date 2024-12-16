@@ -5,12 +5,15 @@
 #include "hardware/gpio.h"
 #include "hardware/adc.h"
 #include "hardware/dma.h"
+#include "pico/binary_info.h"
 #include "pico/cyw43_arch.h"
 #include "fft.h"
+#include "servoControl.h"
+#include "amplifierControl.h"
+#include <cstdio>
 
 // SPI Defines
 #define SPI_PORT spi1
-#define PIN_MISO 12
 #define PIN_CS   13
 #define PIN_SCK  10
 #define PIN_MOSI 11
@@ -23,6 +26,8 @@
 #define SAMPLE_DEPTH_DS 1024
 #define LOG2_SAMPLE_DEPTH_DS
 #define SAMPLE_DEPTH SAMPLE_DEPTH_DS*OSR
+
+#define SERVO_PIN 3
 
 const float ADC_SAMPLING_FREQ = 5000.0*OSR; // 1024/5000 = 0.2 s, or 5 Hz resolution
 
@@ -39,23 +44,14 @@ int64_t alarm_callback(alarm_id_t id, void *user_data) {
 int main()
 {
     stdio_init_all();
+    Servo servo(SERVO_PIN);
+    SPIAmplifier amplifier(SPI_PORT, PIN_CS, PIN_SCK, PIN_MOSI);
 
     // Initialise the Wi-Fi chip
     if (cyw43_arch_init()) {
         printf("Wi-Fi init failed\n");
         return -1;
     }
-
-    // SPI initialisation. This example will use SPI at 1MHz.
-    spi_init(SPI_PORT, 1000*1000);
-    spi_set_format(SPI_PORT, 16, SPI_CPHA_0, SPI_CPOL_0, SPI_MSB_FIRST);
-    gpio_set_function(PIN_MISO, GPIO_FUNC_SPI);
-    gpio_set_function(PIN_CS,   GPIO_FUNC_SIO);
-    gpio_set_function(PIN_SCK,  GPIO_FUNC_SPI);
-    gpio_set_function(PIN_MOSI, GPIO_FUNC_SPI);
-    
-    gpio_set_dir(PIN_CS, GPIO_OUT);
-    gpio_put(PIN_CS, 1);
 
     // Initialize ADC
     adc_init();
