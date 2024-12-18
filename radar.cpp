@@ -17,15 +17,17 @@
 #define PIN_CS   13
 #define PIN_SCK  10
 #define PIN_MOSI 11
-SPIAmplifier amplifier(SPI_PORT, PIN_CS, PIN_SCK, PIN_MOSI);
+#define SPI_LOG 0
+SPIAmplifier amplifier(SPI_PORT, PIN_CS, PIN_SCK, PIN_MOSI, SPI_LOG);
 
 // Definição do servo
 #define SERVO_PIN 3
-Servo servo(SERVO_PIN);
+#define SERVO_LOG 0
+Servo servo(SERVO_PIN, SERVO_LOG);
 uint8_t current_angle = 0;
 bool increasing = true;
-const uint8_t step = 1;          // Incremento do ângulo
-const uint32_t interval_ms = 5; // Intervalo entre os passos
+const uint8_t step = 3;          // Incremento do ângulo
+const uint32_t interval_ms = 25; // Intervalo entre os passos
 
 // Variáveis para execução da FFT
 #define ADC_INPUT 0

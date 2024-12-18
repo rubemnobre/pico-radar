@@ -8,7 +8,7 @@
 class SPIAmplifier {
 public:
     // Construtor: Configura o SPI e os pinos associados
-    SPIAmplifier(spi_inst_t* spi_port, uint cs_pin, uint sck_pin, uint mosi_pin);
+    SPIAmplifier(spi_inst_t* spi_port, uint cs_pin, uint sck_pin, uint mosi_pin, bool logMode);
 
     // Define o ganho do amplificador (1 a 32)
     void set_gain(uint8_t gain);
@@ -19,10 +19,14 @@ public:
     void set_previous_gain();
     void set_next_gain();
 
+    void setAmplifierLog(bool newAmplifierLogMode);
+
 private:
     spi_inst_t* spi_port; // Instância do SPI
     uint cs_pin;          // Pino de Chip Select (CS)
     uint current_gain;    // Memória do ganho atual configurado
+
+    bool amplifierLog = 0;
 
     // Função para enviar comandos SPI
     void spi_write16(uint16_t data);

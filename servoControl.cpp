@@ -2,15 +2,20 @@
 #include "hardware/clocks.h"
 #include "hardware/gpio.h"
 #include "pico/stdlib.h"
+#include "stdio.h"
 
 // Construtor: Inicializa o servo na GPIO especificada
-Servo::Servo(uint gpio_pin) : gpio_pin(gpio_pin), current_angle(0) {
+Servo::Servo(uint gpio_pin, bool logMode) : gpio_pin(gpio_pin), current_angle(0) {
     gpio_set_function(gpio_pin, GPIO_FUNC_PWM);
     slice_num = pwm_gpio_to_slice_num(gpio_pin);
     pwm_config config = pwm_get_default_config();
     pwm_config_set_clkdiv(&config, 64.0f); // Ajuste do divisor
     pwm_init(slice_num, &config, true);
-    set_angle(0); // Inicializa o servo em 0 graus
+    servoLog = logMode;
+    if(servoLog) {
+        printf("Servo started\n");
+    }
+    set_angle(0);
 }
 
 // Define o ângulo do servo (0 a 180 graus)
@@ -25,9 +30,24 @@ void Servo::set_angle(uint8_t angle) {
     pwm_set_chan_level(slice_num, pwm_gpio_to_channel(gpio_pin), (pulse_width * top_value) / 20000);
 
     current_angle = angle; // Atualiza a memória com o ângulo atual
+
+    if(servoLog) {
+        printf("Servo angle set to %d degrees.\n", current_angle);
+    }
+    
 }
 
 // Retorna o último ângulo configurado
 uint8_t Servo::get_angle() const {
+    printf("Servo angle is %d degrees.\n", current_angle);
     return current_angle;
+}
+
+void Servo::setServoLog(bool newServoLogMode) {
+    servoLog = newServoLogMode;
+    if(servoLog) {
+        printf("Servo log enabled\n");
+    } else {
+        printf("Servo log disabled\n");
+    }
 }

@@ -1,6 +1,7 @@
 #include "amplifierControl.h"
+#include "stdio.h"
 
-SPIAmplifier::SPIAmplifier(spi_inst_t* spi_port, uint cs_pin, uint sck_pin, uint mosi_pin) 
+SPIAmplifier::SPIAmplifier(spi_inst_t* spi_port, uint cs_pin, uint sck_pin, uint mosi_pin, bool logMode) 
     : spi_port(spi_port), cs_pin(cs_pin), current_gain(1) { // Ganho inicial 1
     // Inicialização do SPI
     spi_init(spi_port, 1000 * 1000); // Frequência de 1 MHz
@@ -9,7 +10,13 @@ SPIAmplifier::SPIAmplifier(spi_inst_t* spi_port, uint cs_pin, uint sck_pin, uint
     gpio_set_function(sck_pin,  GPIO_FUNC_SPI);
     gpio_set_function(mosi_pin, GPIO_FUNC_SPI);
 
-    bi_decl(bi_3pins_with_func(mosi_pin, sck_pin, cs_pin, GPIO_FUNC_SPI));  // ISSO É REALMENTE NECESSáRIO?
+    amplifierLog = logMode;
+
+    if(amplifierLog) {
+        printf("Amplifier SPI started\n");
+    }
+
+    bi_decl(bi_3pins_with_func(mosi_pin, sck_pin, cs_pin, GPIO_FUNC_SPI));
 
     set_gain(32);
 }
@@ -45,9 +52,13 @@ void SPIAmplifier::set_gain(uint8_t gain) {
             break;
         case 32:
             spiBits[1] = 7;
+            
             break;
         default:
             spiBits[1] = 0;
+            if(amplifierLog){
+                printf("Gain option not available\n");
+            }
     }
 
     uint16_t spiSendByte = (spiBits[0] << 8) | spiBits[1];
@@ -57,6 +68,10 @@ void SPIAmplifier::set_gain(uint8_t gain) {
 
     // Atualiza a memória do ganho atual
     current_gain = gain;
+
+    if(amplifierLog) {
+        printf("Gain set to %d\n", current_gain);
+    }
 }
 
 uint8_t SPIAmplifier::get_gain() const {
@@ -127,4 +142,13 @@ void SPIAmplifier::set_previous_gain() {
 
 void SPIAmplifier::spi_write16(uint16_t data) {
     spi_write16_blocking(spi_port, &data, 1);
+}
+
+void SPIAmplifier::setAmplifierLog(bool newAmplifierLogMode) {
+    amplifierLog = newAmplifierLogMode;
+    if(amplifierLog) {
+        printf("Amplifier log enabled\n");
+    } else {
+        printf("Amplifier log disabled\n");
+    }
 }
