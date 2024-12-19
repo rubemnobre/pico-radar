@@ -18,95 +18,53 @@
 #define PIN_SCK  10
 #define PIN_MOSI 11
 #define SPI_LOG 0
-SPIAmplifier amplifier(SPI_PORT, PIN_CS, PIN_SCK, PIN_MOSI, SPI_LOG);
 
 // Definição do servo
 #define SERVO_PIN 3
 #define SERVO_LOG 0
-Servo servo(SERVO_PIN, SERVO_LOG);
-uint8_t current_angle = 0;
-bool increasing = true;
-const uint8_t step = 3;          // Incremento do ângulo
-const uint32_t interval_ms = 25; // Intervalo entre os passos
 
 // Variáveis para execução da FFT
 #define ADC_INPUT 0
 #define PIN_ADC 26
 
-#define OSR 16
-#define LOG2_OSR 4
+#define OSR 32
+#define LOG2_OSR 5
 #define SAMPLE_DEPTH_DS 1024
-#define LOG2_SAMPLE_DEPTH_DS
+#define LOG2_SAMPLE_DEPTH_DS 10
 #define SAMPLE_DEPTH SAMPLE_DEPTH_DS*OSR
+#define ADC_SAMPLING_FREQ 10000.0*OSR
 
-const float ADC_SAMPLING_FREQ = 5000.0*OSR; // 1024/5000 = 0.2 s, or 5 Hz resolution
+#define N_PEAKS 5 
+
+SPIAmplifier amplifier(SPI_PORT, PIN_CS, PIN_SCK, PIN_MOSI, SPI_LOG);
+
+Servo servo(SERVO_PIN, SERVO_LOG);
+bool increasing = true;
+const float step = 0.3;          // Incremento do ângulo
+const float max_angle = 90;
+float current_angle = 0;
 
 uint16_t    adc_buffer[SAMPLE_DEPTH];
 int16_t     adc_buffer_ds[SAMPLE_DEPTH_DS];
 int16_t     fft_real[SAMPLE_DEPTH_DS];
 int16_t     fft_imag[SAMPLE_DEPTH_DS];
 
-// Fim das variáveis globais
-
-bool swing_callback(repeating_timer_t *rt) {
-    // Atualiza o ângulo
-    if (increasing) {
-        current_angle += step;
-        if (current_angle >= 180) {
-            current_angle = 180;
-            increasing = false;
-        }
-    } else {
-        current_angle -= step;
-        if (current_angle <= 0) {
-            current_angle = 0;
-            increasing = true;
-        }
+void step_servo(){
+    float new_angle = increasing? (current_angle + step) : (current_angle - step);
+    if(new_angle > max_angle){
+        current_angle = (max_angle - (new_angle - max_angle));
+        increasing = false;
+    }else if(new_angle < 0){
+        current_angle = (-new_angle);
+        increasing = true;
+    }else{
+        current_angle = new_angle;
     }
-
-    // Ajusta o ângulo do servo
-    servo.set_angle(current_angle);
-
-    return true; // Continua o alarme
+    // printf("current angle = %d\n", (uint8_t)current_angle);
+    servo.set_angle((uint8_t)current_angle);
 }
 
-void adjust_gain(uint16_t *samples, int sample_count) {
-    bool saturation_detected = false;
-    bool gain_increment_needed = true;
-
-    // Verifica se há saturação
-    for (int i = 0; i < sample_count; i++) {
-        if(samples[i] >= 3000) {
-            gain_increment_needed = false;
-            if (samples[i] >= 4095) {
-                saturation_detected = true;
-                break;
-            }
-        }
-    }
-
-    // Ajusta o ganho com base na saturação
-    if (saturation_detected) {
-        amplifier.set_previous_gain();
-    } else if (gain_increment_needed) {
-        amplifier.set_next_gain();
-    }
-}
-
-int main()
-{
-    stdio_init_all();
-
-    // Initialise the Wi-Fi chip
-    if (cyw43_arch_init()) {
-        printf("Wi-Fi init failed\n");
-        return -1;
-    }
-
-    // Configura um repeating timer para realizacao do swing do servo
-    repeating_timer_t servoTimer;
-    add_repeating_timer_ms(-interval_ms, swing_callback, NULL, &servoTimer);
-
+int adc_dma_init(){
     // Initialize ADC
     adc_init();
     adc_select_input(ADC_INPUT);
@@ -119,10 +77,10 @@ int main()
     );
 
     adc_gpio_init(PIN_ADC);
-    adc_set_clkdiv(0);
+    adc_set_clkdiv(48e6/(ADC_SAMPLING_FREQ));
 
     // Initialize DMA
-    uint dma_chan = dma_claim_unused_channel(true);
+    int dma_chan = dma_claim_unused_channel(true);
     dma_channel_config cfg = dma_channel_get_default_config(dma_chan);
     channel_config_set_transfer_data_size(&cfg, DMA_SIZE_16);
     channel_config_set_read_increment(&cfg, false);
@@ -136,11 +94,31 @@ int main()
         true            // start immediately
     );
 
+    return dma_chan;
+}
+
+int main()
+{
+    stdio_init_all();
+
+    // Initialise the Wi-Fi chip
+    if (cyw43_arch_init()) {
+        printf("Wi-Fi init failed\n");
+        return -1;
+    }
+
+    int dma_chan = adc_dma_init();
+
     cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
+
+    amplifier.set_gain(32);
+    servo.set_angle(0);
+    sleep_ms(1000);
 
     adc_run(true);
 
     printf("Starting\n");
+    int32_t maxmax = 0;
 
     while (true) {
         printf(".");
@@ -148,30 +126,30 @@ int main()
         if(!dma_channel_is_busy(dma_chan)){
             adc_run(false);
             adc_fifo_drain();
-            // printf("\nADC capture done\n");
+            uint64_t end = time_us_64();
+            printf("t %llu\n", end);
+
+            step_servo();
+            // sleep_ms(100);
 
             for(int i = 0; i < SAMPLE_DEPTH_DS; i++){
-                int16_t acc = 0;
+                int32_t acc = 0;
                 for(int j = 0; j < OSR; j++){
-                    acc += ((int16_t)adc_buffer[i*OSR + j] - 2048);
+                    acc += ((int32_t)adc_buffer[i*OSR + j] - 2048);
                 }
-                // adc_buffer_ds[i] = acc;
-                fft_real[i] = acc;
+                
+                fft_real[i] = (int16_t)(acc >> (LOG2_OSR - 4));
                 fft_imag[i] = 0;
             }
 
-            // Ajusta o ganho se necessário
-            adjust_gain(adc_buffer, SAMPLE_DEPTH_DS);
-
-            // printf("Starting next ADC capture\n");
-            dma_channel_set_write_addr (dma_chan, adc_buffer, true);
+            dma_channel_set_write_addr(dma_chan, adc_buffer, true);
             adc_run(true);
 
-            fix_fft(fft_real, fft_imag, 10, 0);
+            fix_fft(fft_real, fft_imag, LOG2_SAMPLE_DEPTH_DS, 0);
 
             int32_t max = 0;
             int imax = -1;
-            for(int i = 0; i < SAMPLE_DEPTH_DS/2; i++){
+            for(int i = 1; i < SAMPLE_DEPTH_DS/2; i++){
                 int32_t abs2 = ((int32_t)fft_real[i]*fft_real[i]) + ((int32_t)fft_imag[i]*fft_imag[i]);
                 if(abs2 > max){
                     max = abs2;
@@ -179,9 +157,16 @@ int main()
                 }
             }
 
-            if(max/(32768.0*32768.0) >= 0.001){
+            if(max > maxmax){
+                maxmax = max;
+            }
+            printf("%f\n", maxmax/(32768.0*32768.0));
+
+            float threshold = 0.013;
+
+            if(max/(32768.0*32768.0) >= threshold){
                 printf("detection\n");
-                printf("max %f\tfreq %f\n", max/(32768.0*32768.0), imax*5000.0/1024.0);
+                printf("max %f\tfreq %f\tgain %d\n", max/(32768.0*32768.0), imax*(ADC_SAMPLING_FREQ/(1.0*OSR))/(1.0*SAMPLE_DEPTH_DS), amplifier.get_gain());
             }
         }
     }

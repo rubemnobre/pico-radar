@@ -39,7 +39,9 @@ void Servo::set_angle(uint8_t angle) {
 
 // Retorna o último ângulo configurado
 uint8_t Servo::get_angle() const {
-    printf("Servo angle is %d degrees.\n", current_angle);
+    if(servoLog){
+        printf("Servo angle is %d degrees.\n", current_angle);
+    }
     return current_angle;
 }
 
