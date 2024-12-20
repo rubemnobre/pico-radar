@@ -27,8 +27,8 @@
 #define ADC_INPUT 0
 #define PIN_ADC 26
 
-#define OSR 32
-#define LOG2_OSR 5
+#define OSR 16
+#define LOG2_OSR 4
 #define SAMPLE_DEPTH_DS 1024
 #define LOG2_SAMPLE_DEPTH_DS 10
 #define SAMPLE_DEPTH SAMPLE_DEPTH_DS*OSR
@@ -36,11 +36,14 @@
 
 #define N_PEAKS 5 
 
+float peaks_mag2[N_PEAKS];
+float peaks_freq[N_PEAKS];
+
 SPIAmplifier amplifier(SPI_PORT, PIN_CS, PIN_SCK, PIN_MOSI, SPI_LOG);
 
 Servo servo(SERVO_PIN, SERVO_LOG);
 bool increasing = true;
-const float step = 0.3;          // Incremento do ângulo
+const float step = 0.5;          // Incremento do ângulo
 const float max_angle = 90;
 float current_angle = 0;
 
@@ -48,6 +51,10 @@ uint16_t    adc_buffer[SAMPLE_DEPTH];
 int16_t     adc_buffer_ds[SAMPLE_DEPTH_DS];
 int16_t     fft_real[SAMPLE_DEPTH_DS];
 int16_t     fft_imag[SAMPLE_DEPTH_DS];
+
+float inline index_to_freq(int i){
+    return i*(ADC_SAMPLING_FREQ/(1.0*OSR))/(1.0*SAMPLE_DEPTH_DS);
+}
 
 void step_servo(){
     float new_angle = increasing? (current_angle + step) : (current_angle - step);
@@ -61,7 +68,7 @@ void step_servo(){
         current_angle = new_angle;
     }
     // printf("current angle = %d\n", (uint8_t)current_angle);
-    servo.set_angle((uint8_t)current_angle);
+    servo.set_angle(current_angle);
 }
 
 int adc_dma_init(){
@@ -97,76 +104,92 @@ int adc_dma_init(){
     return dma_chan;
 }
 
+int64_t servo_timer(alarm_id_t id, void *user_data){
+    step_servo();
+    add_alarm_in_ms(20, servo_timer, NULL, false);
+    return 0;
+}
+
 int main()
 {
     stdio_init_all();
-
+    
+    
     // Initialise the Wi-Fi chip
     if (cyw43_arch_init()) {
-        printf("Wi-Fi init failed\n");
+        // printf("Wi-Fi init failed\n");
         return -1;
     }
+    
+    add_alarm_in_ms(1000, servo_timer, NULL, false);
 
     int dma_chan = adc_dma_init();
 
     cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
 
-    amplifier.set_gain(32);
+    amplifier.set_gain(1);
     servo.set_angle(0);
     sleep_ms(1000);
 
     adc_run(true);
 
-    printf("Starting\n");
+    // printf("Starting\n");
     int32_t maxmax = 0;
 
     while (true) {
-        printf(".");
+        // printf(".");
         sleep_ms(10);
         if(!dma_channel_is_busy(dma_chan)){
             adc_run(false);
             adc_fifo_drain();
-            uint64_t end = time_us_64();
-            printf("t %llu\n", end);
-
-            step_servo();
-            // sleep_ms(100);
+            int sat = 0;
 
             for(int i = 0; i < SAMPLE_DEPTH_DS; i++){
                 int32_t acc = 0;
                 for(int j = 0; j < OSR; j++){
+                    if(((int32_t)adc_buffer[i*OSR + j] - 2048) >= 2000 || ((int32_t)adc_buffer[i*OSR + j] - 2048) < -2000){
+                        sat = 1;
+                    }
                     acc += ((int32_t)adc_buffer[i*OSR + j] - 2048);
                 }
                 
                 fft_real[i] = (int16_t)(acc >> (LOG2_OSR - 4));
                 fft_imag[i] = 0;
             }
-
+            
             dma_channel_set_write_addr(dma_chan, adc_buffer, true);
             adc_run(true);
 
             fix_fft(fft_real, fft_imag, LOG2_SAMPLE_DEPTH_DS, 0);
 
-            int32_t max = 0;
-            int imax = -1;
+            for(int j = 0; j < N_PEAKS; j++){
+                peaks_mag2[j] = 0;
+                peaks_freq[j] = -1;
+            }
+
+            int64_t max = 0;
+            float fmax = -1;
             for(int i = 1; i < SAMPLE_DEPTH_DS/2; i++){
-                int32_t abs2 = ((int32_t)fft_real[i]*fft_real[i]) + ((int32_t)fft_imag[i]*fft_imag[i]);
+                int64_t abs2 = ((int32_t)fft_real[i]*(int32_t)fft_real[i]) + ((int32_t)fft_imag[i]*(int32_t)fft_imag[i]);
                 if(abs2 > max){
                     max = abs2;
-                    imax = i;
+                    fmax = index_to_freq(i);
+                    for(int j = 0; j < N_PEAKS-1; j++){
+                        peaks_mag2[j] = peaks_mag2[j+1];
+                        peaks_freq[j] = peaks_freq[j+1];
+                    }
+                    peaks_mag2[N_PEAKS-1] = (abs2)/(32768.0*32768.0);
+                    peaks_freq[N_PEAKS-1] = fmax;
                 }
             }
 
-            if(max > maxmax){
-                maxmax = max;
-            }
-            printf("%f\n", maxmax/(32768.0*32768.0));
-
-            float threshold = 0.013;
-
-            if(max/(32768.0*32768.0) >= threshold){
-                printf("detection\n");
-                printf("max %f\tfreq %f\tgain %d\n", max/(32768.0*32768.0), imax*(ADC_SAMPLING_FREQ/(1.0*OSR))/(1.0*SAMPLE_DEPTH_DS), amplifier.get_gain());
+            printf("b\n");
+            printf("a%.4f;\n", current_angle);
+            printf("f%.4f;%.4f;%.4f;%.4f;%.4f;\n", peaks_freq[0], peaks_freq[1], peaks_freq[2], peaks_freq[3], peaks_freq[4]);
+            printf("m%.4f;%.4f;%.4f;%.4f;%.4f;\n", peaks_mag2[0], peaks_mag2[1], peaks_mag2[2], peaks_mag2[3], peaks_mag2[4]);
+            printf("e\n");
+            if(sat == 1){
+                printf("SAT\n");
             }
         }
     }

@@ -8,17 +8,17 @@ public:
     Servo(uint gpio_pin, bool logMode);
     
     // Define o ângulo do servo (0 a 180 graus)
-    void set_angle(uint8_t angle);
+    void set_angle(float angle);
 
     // Retorna o último ângulo configurado
-    uint8_t get_angle() const;
+    float get_angle() const;
 
     void setServoLog(bool newServoLogMode);
 
 private:
     uint gpio_pin;
     uint slice_num;
-    uint8_t current_angle; // Memória para o último ângulo definido
+    float current_angle; // Memória para o último ângulo definido
 
     bool servoLog = 0;
 

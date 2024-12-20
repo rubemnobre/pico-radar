@@ -19,7 +19,7 @@ Servo::Servo(uint gpio_pin, bool logMode) : gpio_pin(gpio_pin), current_angle(0)
 }
 
 // Define o ângulo do servo (0 a 180 graus)
-void Servo::set_angle(uint8_t angle) {
+void Servo::set_angle(float angle) {
     if (angle > 180) angle = 180;
 
     uint16_t pulse_width = SERVO_MIN_US + ((SERVO_MAX_US - SERVO_MIN_US) * angle) / 180;
@@ -38,9 +38,9 @@ void Servo::set_angle(uint8_t angle) {
 }
 
 // Retorna o último ângulo configurado
-uint8_t Servo::get_angle() const {
+float Servo::get_angle() const {
     if(servoLog){
-        printf("Servo angle is %d degrees.\n", current_angle);
+        printf("Servo angle is %f degrees.\n", current_angle);
     }
     return current_angle;
 }
